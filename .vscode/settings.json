@@ -1,0 +1,7 @@
+{
+  "VsCodeTaskButtons.showCounter": false,
+  "VsCodeTaskButtons.tasks": [
+    { "label": "$(play) Run on phone", "task": "Run on phone", "tooltip": "Build, install and launch on the phone" },
+    { "label": "$(list-unordered) Alarm log", "task": "Show alarm event log", "tooltip": "Show NeverMiss event log from the phone" }
+  ]
+}

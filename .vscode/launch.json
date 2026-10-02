@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run on phone",
+      "type": "node-terminal",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "command": "./gradlew installDebug && \"$HOME/Library/Android/sdk/platform-tools/adb\" shell am start -n com.nevermiss.alarm/.ui.MainActivity"
+    }
+  ]
+}

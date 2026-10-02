@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run on phone",
+      "detail": "Build, install and launch NeverMiss on the connected device",
+      "type": "shell",
+      "command": "./gradlew installDebug && \"$HOME/Library/Android/sdk/platform-tools/adb\" shell am start -n com.nevermiss.alarm/.ui.MainActivity",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+    },
+    {
+      "label": "Build APK",
+      "type": "shell",
+      "command": "./gradlew assembleDebug && echo APK: app/build/outputs/apk/debug/app-debug.apk",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Show alarm event log",
+      "type": "shell",
+      "command": "\"$HOME/Library/Android/sdk/platform-tools/adb\" shell run-as com.nevermiss.alarm cat /data/user_de/0/com.nevermiss.alarm/files/events.log | tail -50",
+      "problemMatcher": []
+    }
+  ]
+}
