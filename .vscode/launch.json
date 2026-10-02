@@ -2,11 +2,18 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run on phone",
+      "name": "Run on phone (debug)",
       "type": "node-terminal",
       "request": "launch",
       "cwd": "${workspaceFolder}",
-      "command": "./gradlew installDebug && \"$HOME/Library/Android/sdk/platform-tools/adb\" shell am start -n com.nevermiss.alarm/.ui.MainActivity"
+      "command": "./gradlew installDebug && \"$HOME/Library/Android/sdk/platform-tools/adb\" shell am start -n com.nevermiss.alarm.debug/com.nevermiss.alarm.ui.MainActivity"
+    },
+    {
+      "name": "Run on phone (release)",
+      "type": "node-terminal",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "command": "./gradlew installRelease && \"$HOME/Library/Android/sdk/platform-tools/adb\" shell am start -n com.nevermiss.alarm/com.nevermiss.alarm.ui.MainActivity"
     }
   ]
 }

@@ -1,9 +1,16 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Release signing key lives outside the repo; keystore.properties (git-ignored) points to it.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -18,9 +25,27 @@ android {
         versionName = "1.0"
     }
 
+    signingConfigs {
+        if (keystoreProps.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            // Installs next to the release app instead of clashing with it.
+            applicationIdSuffix = ".debug"
+            resValue("string", "app_name", "NeverMiss Debug")
+        }
         release {
             isMinifyEnabled = false
+            resValue("string", "app_name", "NeverMiss")
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {

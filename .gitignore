@@ -9,3 +9,6 @@ build/
 .cxx
 .kotlin/
 .claude/
+keystore.properties
+*.jks
+*.keystore

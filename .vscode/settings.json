@@ -1,7 +1,20 @@
 {
   "VsCodeTaskButtons.showCounter": false,
   "VsCodeTaskButtons.tasks": [
-    { "label": "$(play) Run on phone", "task": "Run on phone", "tooltip": "Build, install and launch on the phone" },
-    { "label": "$(list-unordered) Alarm log", "task": "Show alarm event log", "tooltip": "Show NeverMiss event log from the phone" }
+    {
+      "label": "$(play) Run debug",
+      "task": "Run on phone",
+      "tooltip": "Build, install and launch the debug app"
+    },
+    {
+      "label": "$(rocket) Run release",
+      "task": "Run release on phone",
+      "tooltip": "Build, install and launch the release app"
+    },
+    {
+      "label": "$(list-unordered) Alarm log",
+      "task": "Show alarm event log (debug app)",
+      "tooltip": "Event log of the debug app"
+    }
   ]
 }
