@@ -12,6 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -56,7 +58,7 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AlarmEditor(
     initial: Alarm,
@@ -142,14 +144,17 @@ fun AlarmEditor(
                 )
 
                 SectionTitle("Repeat")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     RepeatMode.entries.forEach { m ->
                         FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m.title) })
                     }
                 }
                 Spacer(Modifier.height(10.dp))
                 when (mode) {
-                    RepeatMode.ONCE -> {}
+                    RepeatMode.ONCE, RepeatMode.DAILY -> {}
                     RepeatMode.WEEKLY -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         DAY_LETTERS.forEachIndexed { i, letter ->
                             DayCircle(letter, days and (1 shl i) != 0) { days = days xor (1 shl i) }
@@ -296,13 +301,16 @@ private fun SettingRow(title: String, subtitle: String?, trailing: @Composable (
     }
 }
 
+private const val EVERY_DAY = 0b1111111
+
 enum class RepeatMode(val title: String) {
-    ONCE("Once"), WEEKLY("Weekly"), DATE("Date"), MONTHLY("Monthly");
+    ONCE("Once"), DAILY("Daily"), WEEKLY("Weekly"), DATE("Date"), MONTHLY("Monthly");
 
     companion object {
         fun of(a: Alarm) = when {
             a.date != null -> DATE
             a.monthDay != 0 -> MONTHLY
+            a.days == EVERY_DAY -> DAILY
             a.days != 0 -> WEEKLY
             else -> ONCE
         }
@@ -312,6 +320,7 @@ enum class RepeatMode(val title: String) {
 /** Sets exactly one repeat kind on [base] and clears the others. */
 private fun buildRepeat(base: Alarm, mode: RepeatMode, days: Int, date: LocalDate, monthDay: Int): Alarm = when (mode) {
     RepeatMode.ONCE -> base.copy(days = 0, date = null, monthDay = 0)
+    RepeatMode.DAILY -> base.copy(days = EVERY_DAY, date = null, monthDay = 0)
     RepeatMode.WEEKLY -> base.copy(days = days, date = null, monthDay = 0)
     RepeatMode.DATE -> base.copy(days = 0, date = date.toString(), monthDay = 0)
     RepeatMode.MONTHLY -> base.copy(days = 0, date = null, monthDay = monthDay)
