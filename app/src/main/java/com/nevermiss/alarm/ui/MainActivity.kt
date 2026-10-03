@@ -337,79 +337,89 @@ private fun AlarmRow(
     Card(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
     ) {
-        Row(
-            Modifier.padding(start = 20.dp, end = 4.dp, top = 14.dp, bottom = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val dim = if (alarm.enabled) 1f else 0.45f
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        val dim = if (alarm.enabled) 1f else 0.45f
+        Column(Modifier.padding(start = 20.dp, end = 4.dp, top = 6.dp, bottom = 16.dp)) {
+            // Top line: time on the left, menu in the corner.
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     formatHm(context, alarm.hour, alarm.minute),
                     fontSize = 40.sp,
                     fontWeight = FontWeight.Light,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+                    modifier = Modifier.weight(1f).padding(top = 8.dp),
                 )
-                if (alarm.label.isNotBlank()) {
-                    Text(
-                        alarm.label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                val details = listOf(
-                    daysLabel(alarm),
-                    if (alarm.autoStopSeconds > 0) "stops after ${alarm.autoStopSeconds} s" else "",
-                ).filter { it.isNotBlank() }.joinToString(" · ")
-                Text(
-                    details,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dim),
-                )
-                val status = when {
-                    isRinging -> "Ringing - tap to open"
-                    locked && alarm.wakeCheckPending -> "Wake-up check at ${formatMillis(context, alarm.snoozedUntil)}"
-                    locked -> "Snoozed until ${formatMillis(context, alarm.snoozedUntil)}"
-                    alarm.enabled && alarm.isSkipping() -> "Skipping ${formatMillis(context, alarm.skippedTrigger)}"
-                    else -> null
-                }
-                if (status != null) {
-                    Text(
-                        status,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            if (locked) {
-                Icon(Icons.Default.Lock, contentDescription = "Locked until dismissed", tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-            }
-            Switch(checked = alarm.enabled, onCheckedChange = onToggle, enabled = !locked)
-            Box {
-                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    fun item(text: String, action: RowAction) = @Composable {
-                        DropdownMenuItem(text = { Text(text) }, onClick = { menuOpen = false; onAction(action) })
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    when {
-                        // Ringing / snoozed / wake check: only its own dismiss rule can end it.
-                        locked -> item(if (isRinging) "Open ringing alarm" else "Dismiss…", RowAction.DISMISS)()
-                        else -> {
-                            item("Edit", RowAction.EDIT)()
-                            if (alarm.enabled && alarm.isRepeating) {
-                                if (alarm.isSkipping()) item("Undo skip", RowAction.UNDO_SKIP)()
-                                else item("Skip next (${formatMillis(context, alarm.regularTrigger())})", RowAction.SKIP)()
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        fun item(text: String, action: RowAction) = @Composable {
+                            DropdownMenuItem(text = { Text(text) }, onClick = { menuOpen = false; onAction(action) })
+                        }
+                        when {
+                            // Ringing / snoozed / wake check: only its own dismiss rule can end it.
+                            locked -> item(if (isRinging) "Open ringing alarm" else "Dismiss…", RowAction.DISMISS)()
+                            else -> {
+                                item("Edit", RowAction.EDIT)()
+                                if (alarm.enabled && alarm.isRepeating) {
+                                    if (alarm.isSkipping()) item("Undo skip", RowAction.UNDO_SKIP)()
+                                    else item("Skip next (${formatMillis(context, alarm.regularTrigger())})", RowAction.SKIP)()
+                                }
                             }
                         }
+                        item("Duplicate", RowAction.DUPLICATE)()
                     }
-                    item("Duplicate", RowAction.DUPLICATE)()
                 }
+            }
+            // Bottom line: details on the left, switch on the right.
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (alarm.label.isNotBlank()) {
+                        Text(
+                            alarm.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    val details = listOf(
+                        daysLabel(alarm),
+                        if (alarm.autoStopSeconds > 0) "stops after ${alarm.autoStopSeconds} s" else "",
+                    ).filter { it.isNotBlank() }.joinToString(" · ")
+                    Text(
+                        details,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dim),
+                    )
+                    val status = when {
+                        isRinging -> "Ringing - tap to open"
+                        locked && alarm.wakeCheckPending -> "Wake-up check at ${formatMillis(context, alarm.snoozedUntil)}"
+                        locked -> "Snoozed until ${formatMillis(context, alarm.snoozedUntil)}"
+                        alarm.enabled && alarm.isSkipping() -> "Skipping ${formatMillis(context, alarm.skippedTrigger)}"
+                        else -> null
+                    }
+                    if (status != null) {
+                        Text(
+                            status,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                if (locked) {
+                    Icon(Icons.Default.Lock, contentDescription = "Locked until dismissed", tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Switch(checked = alarm.enabled, onCheckedChange = onToggle, enabled = !locked)
             }
         }
     }
