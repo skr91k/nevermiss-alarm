@@ -77,6 +77,7 @@ fun AlarmEditor(
     var label by remember { mutableStateOf(initial.label) }
     var vibrate by remember { mutableStateOf(initial.vibrate) }
     var math by remember { mutableStateOf(initial.mathChallenge) }
+    var ensureAwake by remember { mutableStateOf(initial.ensureAwake) }
     var snooze by remember { mutableIntStateOf(initial.snoozeMinutes) }
     var ringtone by remember { mutableStateOf(initial.ringtoneUri) }
     var autoStop by remember { mutableIntStateOf(initial.autoStopSeconds) }
@@ -224,6 +225,9 @@ fun AlarmEditor(
                     SettingRow("Solve math to dismiss", "Keeps you from turning it off half asleep") {
                         Switch(math, { math = it })
                     }
+                    SettingRow("Ensure I'm awake", "Rings again 3 min after dismiss until you tap \"I'm awake\"") {
+                        Switch(ensureAwake, { ensureAwake = it })
+                    }
                 }
 
                 SectionTitle("Snooze length")
@@ -262,6 +266,7 @@ fun AlarmEditor(
                                 label = label.trim(),
                                 vibrate = vibrate,
                                 mathChallenge = math,
+                                ensureAwake = ensureAwake,
                                 snoozeMinutes = snooze,
                                 ringtoneUri = ringtone,
                                 autoStopSeconds = autoStop,

@@ -39,7 +39,23 @@ data class Alarm(
     val autoSnoozeMinutes: Int = 1,
     val date: String? = null,
     val monthDay: Int = 0,
+    /** A repeating occurrence the user chose to skip ("Skip next"). */
+    val skippedTrigger: Long = 0L,
+    /** After dismiss, ring again a few minutes later until "I'm awake" is tapped. */
+    val ensureAwake: Boolean = true,
 ) {
+    /** True while the next regular occurrence is being skipped. */
+    fun isSkipping(now: Long = System.currentTimeMillis()): Boolean =
+        isRepeating && skippedTrigger > now && regularTrigger(now) == skippedTrigger
+
+    /** A fresh copy for "Duplicate": same settings, no runtime state. */
+    fun duplicate(): Alarm = Alarm(
+        hour = hour, minute = minute, days = days, label = label, vibrate = vibrate,
+        ringtoneUri = ringtoneUri, snoozeMinutes = snoozeMinutes, mathChallenge = mathChallenge,
+        autoStopSeconds = autoStopSeconds, autoSnoozeMinutes = autoSnoozeMinutes,
+        date = date, monthDay = monthDay, ensureAwake = ensureAwake,
+    )
+
     val isRepeating: Boolean get() = date == null && (days != 0 || monthDay != 0)
 
     val exactDate: LocalDate? get() = date?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
@@ -48,6 +64,12 @@ data class Alarm(
 
     fun nextTrigger(now: Long = System.currentTimeMillis()): Long {
         if (snoozedUntil > now) return snoozedUntil
+        val next = regularTrigger(now)
+        return if (isRepeating && skippedTrigger != 0L && next == skippedTrigger) regularTrigger(next) else next
+    }
+
+    /** Next occurrence from the repeat rule alone - ignores snooze and skip. */
+    fun regularTrigger(now: Long = System.currentTimeMillis()): Long {
         val zone = ZoneId.systemDefault()
         exactDate?.let { d ->
             // May be in the past; the scheduler refuses to arm it then.
@@ -91,6 +113,8 @@ data class Alarm(
         put("autoSnoozeMinutes", autoSnoozeMinutes)
         put("date", date ?: "")
         put("monthDay", monthDay)
+        put("skippedTrigger", skippedTrigger)
+        put("ensureAwake", ensureAwake)
     }
 
     companion object {
@@ -117,6 +141,8 @@ data class Alarm(
             autoSnoozeMinutes = o.optInt("autoSnoozeMinutes", 1),
             date = o.optString("date").ifEmpty { null },
             monthDay = o.optInt("monthDay"),
+            skippedTrigger = o.optLong("skippedTrigger"),
+            ensureAwake = o.optBoolean("ensureAwake", true),
         )
     }
 }

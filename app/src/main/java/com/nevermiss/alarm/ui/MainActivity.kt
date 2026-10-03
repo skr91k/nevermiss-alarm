@@ -11,7 +11,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -29,11 +32,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -169,6 +176,24 @@ private fun MainScreen(resumeTick: Int) {
                     locked = locked,
                     isRinging = isRinging,
                     onToggle = { enabled -> toastScheduled(AlarmController.save(context, alarm.copy(enabled = enabled))) },
+                    onAction = { action ->
+                        when (action) {
+                            RowAction.EDIT -> editing = alarm
+                            RowAction.DUPLICATE -> editing = alarm.duplicate()
+                            RowAction.SKIP -> {
+                                val saved = AlarmController.skipNext(context, alarm)
+                                Toast.makeText(
+                                    context,
+                                    "Skipping ${formatMillis(context, saved.skippedTrigger)} - next ${formatMillis(context, saved.nextTrigger())}",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                            RowAction.UNDO_SKIP -> toastScheduled(AlarmController.undoSkip(context, alarm))
+                            RowAction.DISMISS -> context.startActivity(
+                                if (isRinging) AlarmActivity.intent(context) else AlarmActivity.dismissIntent(context, alarm.id),
+                            )
+                        }
+                    },
                     onClick = {
                         when {
                             isRinging -> context.startActivity(AlarmActivity.intent(context))
@@ -294,16 +319,23 @@ private fun ReliabilityCard(
     }
 }
 
+private enum class RowAction { EDIT, DUPLICATE, SKIP, UNDO_SKIP, DISMISS }
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AlarmRow(
     alarm: Alarm,
     locked: Boolean,
     isRinging: Boolean,
     onToggle: (Boolean) -> Unit,
+    onAction: (RowAction) -> Unit,
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
+    ) {
         Row(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
@@ -325,6 +357,10 @@ private fun AlarmRow(
                         color = MaterialTheme.colorScheme.primary,
                     )
                     locked -> Text("Snoozed until ${formatMillis(context, alarm.snoozedUntil)}", color = MaterialTheme.colorScheme.primary)
+                    alarm.enabled && alarm.isSkipping() -> Text(
+                        "Skipping ${formatMillis(context, alarm.skippedTrigger)}",
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
             if (locked) {
@@ -332,6 +368,26 @@ private fun AlarmRow(
                 Spacer(Modifier.width(8.dp))
             }
             Switch(checked = alarm.enabled, onCheckedChange = onToggle, enabled = !locked)
+            Box {
+                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    fun item(text: String, action: RowAction) = @Composable {
+                        DropdownMenuItem(text = { Text(text) }, onClick = { menuOpen = false; onAction(action) })
+                    }
+                    when {
+                        // Ringing / snoozed / wake check: only its own dismiss rule can end it.
+                        locked -> item(if (isRinging) "Open ringing alarm" else "Dismiss…", RowAction.DISMISS)()
+                        else -> {
+                            item("Edit", RowAction.EDIT)()
+                            if (alarm.enabled && alarm.isRepeating) {
+                                if (alarm.isSkipping()) item("Undo skip", RowAction.UNDO_SKIP)()
+                                else item("Skip next (${formatMillis(context, alarm.regularTrigger())})", RowAction.SKIP)()
+                            }
+                        }
+                    }
+                    item("Duplicate", RowAction.DUPLICATE)()
+                }
+            }
         }
     }
 }

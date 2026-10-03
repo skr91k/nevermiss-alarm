@@ -19,6 +19,18 @@ object AlarmController {
         return AlarmStore.get(context, saved.id) ?: saved
     }
 
+    /** Skips only the next regular occurrence of a repeating alarm. */
+    fun skipNext(context: Context, alarm: Alarm): Alarm {
+        val skipped = alarm.regularTrigger()
+        EventLog.log(context, "skip next of alarm ${alarm.id}: ${EventLog.time(skipped)}")
+        return save(context, alarm.copy(skippedTrigger = skipped))
+    }
+
+    fun undoSkip(context: Context, alarm: Alarm): Alarm {
+        EventLog.log(context, "undo skip of alarm ${alarm.id}")
+        return save(context, alarm.copy(skippedTrigger = 0))
+    }
+
     fun delete(context: Context, id: Int) {
         AlarmScheduler.cancel(context, id)
         AlarmStore.delete(context, id)
@@ -84,7 +96,7 @@ object AlarmController {
      * the alarm yet: it schedules a wake-up check a few minutes later.
      */
     fun dismiss(context: Context, id: Int, wasWakeCheck: Boolean) {
-        if (wasWakeCheck) return dismissFully(context, id)
+        if (wasWakeCheck || AlarmStore.get(context, id)?.ensureAwake == false) return dismissFully(context, id)
         EventLog.log(context, "dismiss alarm $id -> wake-up check in ${WAKE_CHECK_DELAY_MS / 60_000} min")
         val until = System.currentTimeMillis() + WAKE_CHECK_DELAY_MS
         val updated = AlarmStore.update(context, id) {
