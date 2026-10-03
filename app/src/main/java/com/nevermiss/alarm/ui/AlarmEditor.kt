@@ -64,7 +64,6 @@ fun AlarmEditor(
     initial: Alarm,
     onDismiss: () -> Unit,
     onSave: (Alarm) -> Unit,
-    onDelete: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     var hour by remember { mutableIntStateOf(initial.hour) }
@@ -253,9 +252,6 @@ fun AlarmEditor(
 
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (onDelete != null) {
-                        TextButton(onClick = onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                    }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = onDismiss) { Text("Cancel") }
                     Button(enabled = !inPast, onClick = {

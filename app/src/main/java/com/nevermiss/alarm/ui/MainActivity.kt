@@ -45,6 +45,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +61,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,6 +80,8 @@ import com.nevermiss.alarm.data.Alarm
 import com.nevermiss.alarm.data.AlarmStore
 import com.nevermiss.alarm.service.AlarmService
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
 
@@ -127,7 +134,29 @@ private fun MainScreen(resumeTick: Int) {
         }
     }
 
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    /** Deletes at once; "Undo" for 3 seconds puts the alarm back exactly as it was. */
+    fun deleteWithUndo(alarm: Alarm) {
+        AlarmController.delete(context, alarm.id)
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            val result = withTimeoutOrNull(3_000) {
+                snackbar.showSnackbar(
+                    message = "Alarm ${formatHm(context, alarm.hour, alarm.minute)} deleted",
+                    actionLabel = "Undo",
+                    duration = SnackbarDuration.Indefinite,
+                )
+            }
+            if (result == SnackbarResult.ActionPerformed) {
+                toastScheduled(AlarmController.save(context, alarm))
+            }
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = { TopAppBar(title = { Text("NeverMiss", fontWeight = FontWeight.Bold) }) },
         floatingActionButton = {
             FloatingActionButton(onClick = { editing = Alarm() }) { Icon(Icons.Default.Add, "Add alarm") }
@@ -181,6 +210,7 @@ private fun MainScreen(resumeTick: Int) {
                         when (action) {
                             RowAction.EDIT -> editing = alarm
                             RowAction.DUPLICATE -> editing = alarm.duplicate()
+                            RowAction.DELETE -> deleteWithUndo(alarm)
                             RowAction.SKIP -> {
                                 val saved = AlarmController.skipNext(context, alarm)
                                 Toast.makeText(
@@ -228,10 +258,6 @@ private fun MainScreen(resumeTick: Int) {
                 toastScheduled(AlarmController.save(context, it))
                 editing = null
             },
-            onDelete = if (alarm.id != 0) ({
-                AlarmController.delete(context, alarm.id)
-                editing = null
-            }) else null,
         )
     }
 }
@@ -320,7 +346,7 @@ private fun ReliabilityCard(
     }
 }
 
-private enum class RowAction { EDIT, DUPLICATE, SKIP, UNDO_SKIP, DISMISS }
+private enum class RowAction { EDIT, DUPLICATE, SKIP, UNDO_SKIP, DISMISS, DELETE }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -372,6 +398,8 @@ private fun AlarmRow(
                             }
                         }
                         item("Duplicate", RowAction.DUPLICATE)()
+                        // A ringing / snoozed alarm can't be deleted - that would skip its dismiss rule.
+                        if (!locked) item("Delete", RowAction.DELETE)()
                     }
                 }
             }
