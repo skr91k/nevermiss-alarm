@@ -63,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -336,33 +337,55 @@ private fun AlarmRow(
     Card(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
     ) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
+        Row(
+            Modifier.padding(start = 20.dp, end = 4.dp, top = 14.dp, bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val dim = if (alarm.enabled) 1f else 0.45f
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     formatHm(context, alarm.hour, alarm.minute),
                     fontSize = 40.sp,
                     fontWeight = FontWeight.Light,
-                    color = if (alarm.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
                 )
-                val subtitle = listOf(
-                    alarm.label,
+                if (alarm.label.isNotBlank()) {
+                    Text(
+                        alarm.label,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = dim),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                val details = listOf(
                     daysLabel(alarm),
                     if (alarm.autoStopSeconds > 0) "stops after ${alarm.autoStopSeconds} s" else "",
                 ).filter { it.isNotBlank() }.joinToString(" · ")
-                Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                when {
-                    isRinging -> Text("Ringing - tap to open", color = MaterialTheme.colorScheme.primary)
-                    locked && alarm.wakeCheckPending -> Text(
-                        "Wake-up check at ${formatMillis(context, alarm.snoozedUntil)}",
+                Text(
+                    details,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dim),
+                )
+                val status = when {
+                    isRinging -> "Ringing - tap to open"
+                    locked && alarm.wakeCheckPending -> "Wake-up check at ${formatMillis(context, alarm.snoozedUntil)}"
+                    locked -> "Snoozed until ${formatMillis(context, alarm.snoozedUntil)}"
+                    alarm.enabled && alarm.isSkipping() -> "Skipping ${formatMillis(context, alarm.skippedTrigger)}"
+                    else -> null
+                }
+                if (status != null) {
+                    Text(
+                        status,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary,
-                    )
-                    locked -> Text("Snoozed until ${formatMillis(context, alarm.snoozedUntil)}", color = MaterialTheme.colorScheme.primary)
-                    alarm.enabled && alarm.isSkipping() -> Text(
-                        "Skipping ${formatMillis(context, alarm.skippedTrigger)}",
-                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }
+            Spacer(Modifier.width(12.dp))
             if (locked) {
                 Icon(Icons.Default.Lock, contentDescription = "Locked until dismissed", tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
