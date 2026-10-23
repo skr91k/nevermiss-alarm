@@ -86,7 +86,7 @@ class AlarmService : Service() {
     private fun ring(alarm: Alarm, wakeCheck: Boolean) {
         currentId = alarm.id
         currentAlarm = alarm
-        val ringTimeoutMs = alarm.autoSnoozeMinutes * 60_000L
+        val ringTimeoutMs = alarm.autoSnoozeSeconds * 1_000L
         WakeLocks.acquire(this, ringTimeoutMs + 60_000)
         sound?.stop()
         sound = AlarmSound(this).also { it.start(alarm.ringtoneUri, alarm.vibrate) }

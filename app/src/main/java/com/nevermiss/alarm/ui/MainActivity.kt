@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.nevermiss.alarm.BuildConfig
+import com.nevermiss.alarm.NeverMissApp
 import com.nevermiss.alarm.core.AlarmController
 import com.nevermiss.alarm.core.AlarmScheduler
 import com.nevermiss.alarm.core.Reliability
@@ -98,6 +99,19 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         setContent { NeverMissTheme { MainScreen(resumeTick) } }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // On app open, put a snoozed alarm's dismiss screen up front. Back returns here and
+        // it isn't shown again until the next open.
+        if (NeverMissApp.consumeOpened() && AlarmService.ringing.value == null) {
+            val now = System.currentTimeMillis()
+            AlarmStore.all(this)
+                .filter { it.enabled && it.snoozedUntil > now }
+                .minByOrNull { it.snoozedUntil }
+                ?.let { startActivity(AlarmActivity.dismissIntent(this, it.id)) }
+        }
     }
 
     override fun onResume() {
@@ -228,11 +242,8 @@ private fun MainScreen(resumeTick: Int) {
                     onClick = {
                         when {
                             isRinging -> context.startActivity(AlarmActivity.intent(context))
-                            locked -> Toast.makeText(
-                                context,
-                                "This alarm will ring again soon - you can change it after dismissing it.",
-                                Toast.LENGTH_LONG,
-                            ).show()
+                            // Same as the menu's "Dismiss…": go straight to this alarm's dismiss rule.
+                            locked -> context.startActivity(AlarmActivity.dismissIntent(context, alarm.id))
                             else -> editing = alarm
                         }
                     },

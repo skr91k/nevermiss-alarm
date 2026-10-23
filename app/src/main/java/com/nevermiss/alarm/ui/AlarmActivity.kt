@@ -33,6 +33,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -100,15 +102,39 @@ private fun RingingScreen(dismissId: Int?, onFinished: () -> Unit) {
             AlarmService.Ringing(it.id, it.label, it.snoozeMinutes, it.mathChallenge, it.wakeCheckPending, it.autoStopSeconds)
         }
     }
-    val silent = ringing == null && pending != null
-    var seen by remember { mutableStateOf(false) }
-    LaunchedEffect(ringing, pending) {
-        if (pending != null && ringing == null) return@LaunchedEffect
+    // Just snoozed (by tap or by itself): stay open a little longer so it can still be dismissed.
+    var snoozed by remember { mutableStateOf<AlarmService.Ringing?>(null) }
+    var lastTouch by remember { mutableLongStateOf(0L) }
+    val waiting = pending ?: snoozed
+    val silent = ringing == null && waiting != null
+    // Stopped by itself (reminder auto-stop, or out of auto-snoozes): show that it rang for a bit.
+    var stopped by remember { mutableStateOf<AlarmService.Ringing?>(null) }
+    var rangAt by remember { mutableLongStateOf(0L) }
+    // The user stopped it from this screen, so it can close right away.
+    var handled by remember { mutableStateOf(false) }
+    var lastRinging by remember { mutableStateOf<AlarmService.Ringing?>(null) }
+    LaunchedEffect(ringing, waiting) {
+        if (waiting != null && ringing == null) return@LaunchedEffect
         if (ringing != null) {
-            seen = true
+            if (ringing != lastRinging) {
+                rangAt = System.currentTimeMillis()
+                handled = false
+            }
+            lastRinging = ringing
+            stopped = null
         } else {
-            if (!seen) delay(3_000)
-            if (AlarmService.ringing.value == null) onFinished()
+            if (lastRinging == null) delay(3_000)
+            if (AlarmService.ringing.value != null) return@LaunchedEffect
+            val last = lastRinging
+            if (last == null || handled) return@LaunchedEffect onFinished()
+            // Nobody touched it: keep the screen up instead of going black.
+            lastTouch = System.currentTimeMillis()
+            val alarm = AlarmStore.get(context, last.id)
+            if (alarm != null && alarm.snoozedUntil > System.currentTimeMillis() && !alarm.wakeCheckPending) {
+                snoozed = last.copy(wakeCheck = false)
+            } else {
+                stopped = last
+            }
         }
     }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -118,21 +144,71 @@ private fun RingingScreen(dismissId: Int?, onFinished: () -> Unit) {
             delay(1_000)
         }
     }
+    // Close the snoozed / stopped screen once it has gone untouched for SNOOZE_GRACE_MS.
+    LaunchedEffect(snoozed, stopped) {
+        if (snoozed == null && stopped == null) return@LaunchedEffect
+        while (true) {
+            val left = lastTouch + SNOOZE_GRACE_MS - System.currentTimeMillis()
+            if (left <= 0) break
+            delay(left)
+        }
+        // Another alarm started ringing meanwhile: drop back to the normal ringing screen.
+        if (AlarmService.ringing.value == null) {
+            onFinished()
+        } else {
+            snoozed = null
+            stopped = null
+        }
+    }
 
     Box(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(24.dp),
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .pointerInput(Unit) {
+                // Watch every touch (without consuming it) to keep the snoozed screen open.
+                awaitPointerEventScope {
+                    while (true) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                        lastTouch = System.currentTimeMillis()
+                    }
+                }
+            }
+            .padding(24.dp),
         contentAlignment = Alignment.Center,
     ) {
-        val r = ringing ?: pending ?: return@Box
+        val s = stopped
+        if (ringing == null && s != null) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Text(s.label.ifBlank { "Alarm" }, fontSize = 24.sp, color = MaterialTheme.colorScheme.primary)
+                val t = Instant.ofEpochMilli(rangAt).atZone(ZoneId.systemDefault())
+                Text(
+                    formatHm(context, t.hour, t.minute),
+                    fontSize = 88.sp,
+                    fontWeight = FontWeight.Light,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text("Rang and stopped by itself", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+                ClosingIn(lastTouch, now)
+                Spacer(Modifier.height(40.dp))
+                Button(onClick = onFinished, modifier = Modifier.fillMaxWidth().height(72.dp)) {
+                    Text("OK", fontSize = 22.sp)
+                }
+            }
+            return@Box
+        }
+        val r = ringing ?: waiting ?: return@Box
         var showMath by remember(r.id) { mutableStateOf(false) }
         // In dismiss mode nothing is ringing, so close the screen once the action is done.
         fun done() {
+            handled = true
             if (silent) onFinished()
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(
                 when {
                     silent && r.wakeCheck -> "Wake-up check (pending)"
+                    silent && pending == null -> "Snoozed for ${r.snoozeMinutes} min"
                     silent -> "Dismiss snoozed alarm"
                     r.wakeCheck -> "Wake-up check"
                     else -> r.label.ifBlank { "Alarm" }
@@ -147,6 +223,7 @@ private fun RingingScreen(dismissId: Int?, onFinished: () -> Unit) {
                 fontWeight = FontWeight.Light,
                 color = MaterialTheme.colorScheme.onBackground,
             )
+            if (silent && pending == null) ClosingIn(lastTouch, now)
             Spacer(Modifier.height(40.dp))
             when {
                 // Reminder-style alarm: stops by itself, so one tap is enough.
@@ -175,11 +252,13 @@ private fun RingingScreen(dismissId: Int?, onFinished: () -> Unit) {
                 showMath -> MathChallenge(
                     onSolved = { AlarmController.dismiss(context, r.id, wasWakeCheck = false); done() },
                     onCancel = { if (silent) onFinished() else showMath = false },
+                    onInput = { lastTouch = System.currentTimeMillis() },
                 )
                 // Dismiss mode for a snoozed alarm: go straight to its dismiss rule.
                 silent && r.mathChallenge -> MathChallenge(
                     onSolved = { AlarmController.dismiss(context, r.id, wasWakeCheck = false); done() },
                     onCancel = onFinished,
+                    onInput = { lastTouch = System.currentTimeMillis() },
                 )
                 silent -> {
                     Button(
@@ -191,13 +270,17 @@ private fun RingingScreen(dismissId: Int?, onFinished: () -> Unit) {
                 else -> {
                     // Snooze is the big, easy target; dismissing takes deliberate effort.
                     Button(
-                        onClick = { AlarmController.snooze(context, r.id) },
+                        onClick = {
+                            lastTouch = System.currentTimeMillis()
+                            snoozed = r
+                            AlarmController.snooze(context, r.id)
+                        },
                         modifier = Modifier.fillMaxWidth().height(96.dp),
                     ) { Text("Snooze ${r.snoozeMinutes} min", fontSize = 24.sp) }
                     Spacer(Modifier.height(48.dp))
                     TextButton(onClick = {
                         if (r.mathChallenge) showMath = true
-                        else AlarmController.dismiss(context, r.id, wasWakeCheck = false)
+                        else { AlarmController.dismiss(context, r.id, wasWakeCheck = false); done() }
                     }) {
                         Text(
                             if (r.mathChallenge) "Dismiss (solve a quick sum)" else "Dismiss",
@@ -212,20 +295,45 @@ private fun RingingScreen(dismissId: Int?, onFinished: () -> Unit) {
 
 private const val MATH_PROBLEMS = 1
 
+/** After Snooze, the screen stays open this long since the last touch so it can still be dismissed. */
+private const val SNOOZE_GRACE_MS = 10_000L
+
 @Composable
-private fun MathChallenge(onSolved: () -> Unit, onCancel: () -> Unit) {
+private fun ClosingIn(lastTouch: Long, now: Long) {
+    val secs = ((lastTouch + SNOOZE_GRACE_MS - now + 999) / 1_000).coerceIn(1, SNOOZE_GRACE_MS / 1_000)
+    Text("Closing in $secs s - tap to keep it open", color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun MathChallenge(onSolved: () -> Unit, onCancel: () -> Unit, onInput: () -> Unit = {}) {
     var solved by remember { mutableStateOf(0) }
     var seed by remember { mutableStateOf(0) }
     val (a, b, c) = remember(seed) { Triple(Random.nextInt(1, 10), Random.nextInt(1, 10), Random.nextInt(1, 10)) }
     var answer by remember(seed) { mutableStateOf("") }
     var wrong by remember { mutableStateOf(false) }
+    fun check() {
+        if (answer.toIntOrNull() == a + b + c) {
+            wrong = false
+            solved++
+            if (solved >= MATH_PROBLEMS) onSolved()
+        } else {
+            wrong = true
+        }
+        seed++
+    }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         if (MATH_PROBLEMS > 1) Text("Problem ${solved + 1} of $MATH_PROBLEMS", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("$a + $b + $c = ?", fontSize = 36.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(
             value = answer,
-            onValueChange = { answer = it.filter(Char::isDigit).take(2) },
+            onValueChange = {
+                // Keyboard taps don't reach the screen's touch watcher, so report them here.
+                onInput()
+                answer = it.filter(Char::isDigit).take(2)
+                // A correct answer goes through on its own; "Check" is only needed for a wrong one.
+                if (answer.toIntOrNull() == a + b + c) check()
+            },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             textStyle = MaterialTheme.typography.headlineMedium.copy(textAlign = TextAlign.Center),
@@ -234,16 +342,7 @@ private fun MathChallenge(onSolved: () -> Unit, onCancel: () -> Unit) {
         if (wrong) Text("Wrong - try this one", color = MaterialTheme.colorScheme.error)
         Spacer(Modifier.height(12.dp))
         Button(
-            onClick = {
-                if (answer.toIntOrNull() == a + b + c) {
-                    wrong = false
-                    solved++
-                    if (solved >= MATH_PROBLEMS) onSolved()
-                } else {
-                    wrong = true
-                }
-                seed++
-            },
+            onClick = ::check,
             modifier = Modifier.fillMaxWidth().height(64.dp),
         ) { Text("Check", fontSize = 20.sp) }
         TextButton(onClick = onCancel) { Text("Back") }

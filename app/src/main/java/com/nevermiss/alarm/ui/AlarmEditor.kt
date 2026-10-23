@@ -80,7 +80,7 @@ fun AlarmEditor(
     var snooze by remember { mutableIntStateOf(initial.snoozeMinutes) }
     var ringtone by remember { mutableStateOf(initial.ringtoneUri) }
     var autoStop by remember { mutableIntStateOf(initial.autoStopSeconds) }
-    var autoSnooze by remember { mutableIntStateOf(initial.autoSnoozeMinutes) }
+    var autoSnooze by remember { mutableIntStateOf(initial.autoSnoozeSeconds) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -238,12 +238,12 @@ fun AlarmEditor(
                 if (autoStop == 0) {
                     SectionTitle("Auto-snooze after")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(1, 3, 5, 10).forEach { m ->
-                            FilterChip(selected = autoSnooze == m, onClick = { autoSnooze = m }, label = { Text("$m min") })
+                        listOf(5, 15, 30, 60).forEach { s ->
+                            FilterChip(selected = autoSnooze == s, onClick = { autoSnooze = s }, label = { Text(secondsLabel(s)) })
                         }
                     }
                     Text(
-                        "If nobody touches it, it snoozes after ringing $autoSnooze min, then rings again",
+                        "If nobody touches it, it snoozes after ringing ${secondsLabel(autoSnooze)}, then rings again",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 6.dp),
@@ -266,7 +266,7 @@ fun AlarmEditor(
                                 snoozeMinutes = snooze,
                                 ringtoneUri = ringtone,
                                 autoStopSeconds = autoStop,
-                                autoSnoozeMinutes = autoSnooze,
+                                autoSnoozeSeconds = autoSnooze,
                                 enabled = true,
                             ),
                         )
@@ -344,3 +344,6 @@ private fun DayCircle(text: String, on: Boolean, onClick: () -> Unit) {
         )
     }
 }
+
+/** "15 s", "1 min", "2 min"... */
+private fun secondsLabel(s: Int): String = if (s % 60 == 0) "${s / 60} min" else "$s s"

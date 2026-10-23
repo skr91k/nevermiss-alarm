@@ -36,7 +36,7 @@ data class Alarm(
     /** > 0: reminder-style alarm that rings this many seconds and then stops by itself. */
     val autoStopSeconds: Int = 0,
     /** Rings untouched this long, then snoozes by itself. */
-    val autoSnoozeMinutes: Int = 1,
+    val autoSnoozeSeconds: Int = 60,
     val date: String? = null,
     val monthDay: Int = 0,
     /** A repeating occurrence the user chose to skip ("Skip next"). */
@@ -52,7 +52,7 @@ data class Alarm(
     fun duplicate(): Alarm = Alarm(
         hour = hour, minute = minute, days = days, label = label, vibrate = vibrate,
         ringtoneUri = ringtoneUri, snoozeMinutes = snoozeMinutes, mathChallenge = mathChallenge,
-        autoStopSeconds = autoStopSeconds, autoSnoozeMinutes = autoSnoozeMinutes,
+        autoStopSeconds = autoStopSeconds, autoSnoozeSeconds = autoSnoozeSeconds,
         date = date, monthDay = monthDay, ensureAwake = ensureAwake,
     )
 
@@ -110,7 +110,7 @@ data class Alarm(
         put("autoSnoozes", autoSnoozes)
         put("wakeCheckPending", wakeCheckPending)
         put("autoStopSeconds", autoStopSeconds)
-        put("autoSnoozeMinutes", autoSnoozeMinutes)
+        put("autoSnoozeSeconds", autoSnoozeSeconds)
         put("date", date ?: "")
         put("monthDay", monthDay)
         put("skippedTrigger", skippedTrigger)
@@ -138,7 +138,8 @@ data class Alarm(
             autoSnoozes = o.optInt("autoSnoozes"),
             wakeCheckPending = o.optBoolean("wakeCheckPending"),
             autoStopSeconds = o.optInt("autoStopSeconds"),
-            autoSnoozeMinutes = o.optInt("autoSnoozeMinutes", 1),
+            // Older saves stored this in minutes.
+            autoSnoozeSeconds = o.optInt("autoSnoozeSeconds", o.optInt("autoSnoozeMinutes", 1) * 60),
             date = o.optString("date").ifEmpty { null },
             monthDay = o.optInt("monthDay"),
             skippedTrigger = o.optLong("skippedTrigger"),
