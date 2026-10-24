@@ -78,6 +78,15 @@ object Reliability {
             )
         }
 
+        // Without this, Android blocks the ringing screen while the phone is unlocked and only shows the notification.
+        list += Check(
+            "Display over other apps",
+            "Opens the alarm screen even while you're using the phone.",
+            Settings.canDrawOverlays(context),
+            "Allow",
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkgUri),
+        )
+
         val pm = context.getSystemService(PowerManager::class.java)
         list += Check(
             "Battery optimization off",

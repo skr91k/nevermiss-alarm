@@ -22,8 +22,8 @@ android {
     defaultConfig {
         applicationId = "com.nevermiss.alarm"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
+        targetSdk = 36
+        versionCode = 3
         versionName = "1.0"
     }
 

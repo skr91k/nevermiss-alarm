@@ -249,14 +249,15 @@ private fun MainScreen(resumeTick: Int) {
                     },
                 )
             }
+            // Hidden in release for now. Replaces any earlier test alarm (it always uses the same id).
             if (BuildConfig.DEBUG) item {
                 OutlinedButton(
                     onClick = {
                         AlarmController.scheduleTest(context)
-                        Toast.makeText(context, "Test alarm in 10 seconds - lock your phone now", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Test alarm in 20 seconds - lock your phone now", Toast.LENGTH_LONG).show()
                     },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Test alarm (rings in 10 s)") }
+                ) { Text("Test alarm (rings in 20 s)") }
             }
         }
     }

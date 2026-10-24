@@ -37,11 +37,12 @@ object AlarmController {
         Notifications.cancelSnoozed(context, id)
     }
 
-    fun scheduleTest(context: Context, delayMs: Long = 10_000) {
+    fun scheduleTest(context: Context, delayMs: Long = 20_000) {
         val alarm = Alarm(
             id = Alarm.TEST_ID,
             label = "Test alarm",
             mathChallenge = false,
+            ensureAwake = false,
             snoozedUntil = System.currentTimeMillis() + delayMs,
         )
         AlarmStore.upsert(context, alarm)
