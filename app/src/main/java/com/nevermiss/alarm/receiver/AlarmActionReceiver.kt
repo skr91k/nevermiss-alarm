@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.nevermiss.alarm.core.AlarmController
+import com.nevermiss.alarm.service.AlarmService
 
 /** Snooze / Dismiss buttons in notifications. */
 class AlarmActionReceiver : BroadcastReceiver() {
@@ -12,12 +13,14 @@ class AlarmActionReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_SNOOZE -> AlarmController.snooze(context, id)
             ACTION_DISMISS -> AlarmController.dismissFully(context, id)
+            ACTION_STOP_PREVIEW -> AlarmService.stopPreview(context)
         }
     }
 
     companion object {
         const val ACTION_SNOOZE = "com.nevermiss.alarm.SNOOZE"
         const val ACTION_DISMISS = "com.nevermiss.alarm.DISMISS"
+        const val ACTION_STOP_PREVIEW = "com.nevermiss.alarm.STOP_PREVIEW"
         const val EXTRA_ID = "id"
     }
 }

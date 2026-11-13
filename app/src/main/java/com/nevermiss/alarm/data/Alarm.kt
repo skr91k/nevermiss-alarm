@@ -3,12 +3,14 @@ package com.nevermiss.alarm.data
 import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
+import java.time.MonthDay
 import java.time.YearMonth
 import java.time.ZoneId
 
 /**
  * Repeat is one of:
- *  - [date] set: rings once on that exact date (ISO yyyy-MM-dd), then switches off.
+ *  - [date] set: rings once on that exact date (ISO yyyy-MM-dd), then switches off -
+ *    or, with [yearly], every year on that day and month (29 Feb -> 28 Feb in other years).
  *  - [monthDay] 1..31: every month on that day; months without that day use their last day.
  *  - [days] bitmask, Monday = bit 0 ... Sunday = bit 6: weekly.
  *  - none of these: once, at the next occurrence of the time.
@@ -43,6 +45,10 @@ data class Alarm(
     val skippedTrigger: Long = 0L,
     /** After dismiss, ring again a few minutes later until "I'm awake" is tapped. */
     val ensureAwake: Boolean = true,
+    /** Listed under Reminders (and on the Alarms tab only when it's due within 24 h). */
+    val reminder: Boolean = false,
+    /** With [date]: repeats every year on that day. */
+    val yearly: Boolean = false,
 ) {
     /** True while the next regular occurrence is being skipped. */
     fun isSkipping(now: Long = System.currentTimeMillis()): Boolean =
@@ -54,9 +60,10 @@ data class Alarm(
         ringtoneUri = ringtoneUri, snoozeMinutes = snoozeMinutes, mathChallenge = mathChallenge,
         autoStopSeconds = autoStopSeconds, autoSnoozeSeconds = autoSnoozeSeconds,
         date = date, monthDay = monthDay, ensureAwake = ensureAwake,
+        reminder = reminder, yearly = yearly,
     )
 
-    val isRepeating: Boolean get() = date == null && (days != 0 || monthDay != 0)
+    val isRepeating: Boolean get() = if (date != null) yearly else (days != 0 || monthDay != 0)
 
     val exactDate: LocalDate? get() = date?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 
@@ -72,6 +79,15 @@ data class Alarm(
     fun regularTrigger(now: Long = System.currentTimeMillis()): Long {
         val zone = ZoneId.systemDefault()
         exactDate?.let { d ->
+            if (yearly) {
+                val md = MonthDay.from(d)
+                var year = Instant.ofEpochMilli(now).atZone(zone).year
+                repeat(3) {
+                    val candidate = md.atYear(year).atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
+                    if (candidate > now) return candidate
+                    year++
+                }
+            }
             // May be in the past; the scheduler refuses to arm it then.
             return d.atTime(hour, minute).atZone(zone).toInstant().toEpochMilli()
         }
@@ -115,6 +131,8 @@ data class Alarm(
         put("monthDay", monthDay)
         put("skippedTrigger", skippedTrigger)
         put("ensureAwake", ensureAwake)
+        put("reminder", reminder)
+        put("yearly", yearly)
     }
 
     companion object {
@@ -144,6 +162,8 @@ data class Alarm(
             monthDay = o.optInt("monthDay"),
             skippedTrigger = o.optLong("skippedTrigger"),
             ensureAwake = o.optBoolean("ensureAwake", true),
+            reminder = o.optBoolean("reminder"),
+            yearly = o.optBoolean("yearly"),
         )
     }
 }

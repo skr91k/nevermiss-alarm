@@ -47,6 +47,28 @@
             android:taskAffinity=""
             android:turnScreenOn="true" />
 
+        <!-- "Time's up" screen for finished timers. -->
+        <activity
+            android:name=".ui.TimerActivity"
+            android:directBootAware="true"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:turnScreenOn="true" />
+
+        <service
+            android:name=".service.TimerService"
+            android:directBootAware="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <receiver
+            android:name=".receiver.TimerReceiver"
+            android:directBootAware="true"
+            android:exported="false" />
+
         <service
             android:name=".service.AlarmService"
             android:directBootAware="true"

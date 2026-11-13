@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.nevermiss.alarm.core.AlarmScheduler
+import com.nevermiss.alarm.core.TimerController
 
 /**
  * Reboot, app update, clock / time-zone change and exact-alarm permission changes can all
@@ -14,5 +15,6 @@ import com.nevermiss.alarm.core.AlarmScheduler
 class SystemEventReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         AlarmScheduler.rescheduleAll(context, intent.action ?: "system event")
+        TimerController.rescheduleAll(context)
     }
 }

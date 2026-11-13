@@ -1,6 +1,7 @@
 package com.nevermiss.alarm.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -43,6 +44,8 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -77,6 +80,9 @@ import com.nevermiss.alarm.NeverMissApp
 import com.nevermiss.alarm.core.AlarmController
 import com.nevermiss.alarm.core.AlarmScheduler
 import com.nevermiss.alarm.core.Reliability
+import com.nevermiss.alarm.core.TimerController
+import com.nevermiss.alarm.data.TimerStore
+import java.time.LocalDate
 import com.nevermiss.alarm.data.Alarm
 import com.nevermiss.alarm.data.AlarmStore
 import com.nevermiss.alarm.service.AlarmService
@@ -87,6 +93,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class MainActivity : ComponentActivity() {
 
     private var resumeTick by mutableIntStateOf(0)
+    private var tab by mutableStateOf(Tab.ALARMS)
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { resumeTick++ }
@@ -98,7 +105,26 @@ class MainActivity : ComponentActivity() {
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        setContent { NeverMissTheme { MainScreen(resumeTick) } }
+        tabFrom(intent)?.let { tab = it }
+        setContent { NeverMissTheme { MainScreen(resumeTick, tab, onTab = { tab = it }) } }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        tabFrom(intent)?.let { tab = it }
+    }
+
+    private fun tabFrom(intent: Intent?): Tab? =
+        intent?.getStringExtra(EXTRA_TAB)?.let { name -> Tab.entries.firstOrNull { it.name == name } }
+
+    companion object {
+        private const val EXTRA_TAB = "tab"
+
+        /** Opens the app on the Timer tab (from timer notifications). */
+        fun timerIntent(context: Context): Intent =
+            Intent(context, MainActivity::class.java)
+                .putExtra(EXTRA_TAB, Tab.TIMER.name)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
     }
 
     override fun onStart() {
@@ -118,22 +144,31 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Cheap insurance: every time the app is opened, re-arm all alarms.
         AlarmScheduler.rescheduleAll(this, "app opened")
+        TimerController.rescheduleAll(this)
         resumeTick++
     }
 }
 
+enum class Tab(val title: String) { ALARMS("Alarms"), REMINDERS("Reminders"), TIMER("Timer"), STOPWATCH("Stopwatch") }
+
+/** A reminder also shows on the Alarms tab once it's this close. */
+private const val REMINDER_ON_HOME_MS = 24 * 60 * 60 * 1000L
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen(resumeTick: Int) {
+private fun MainScreen(resumeTick: Int, tab: Tab, onTab: (Tab) -> Unit) {
     val context = LocalContext.current
     val version by AlarmStore.version.collectAsState()
     var localTick by remember { mutableIntStateOf(0) }
-    val alarms = remember(version, resumeTick) {
-        AlarmStore.all(context).filter { it.id != Alarm.TEST_ID }.sortedBy { it.hour * 60 + it.minute }
+    val all = remember(version, resumeTick) {
+        AlarmStore.all(context).filter { it.id != Alarm.TEST_ID }
     }
     val checks = remember(version, resumeTick, localTick) { Reliability.checks(context) }
     var editing by remember { mutableStateOf<Alarm?>(null) }
-    val ringing by AlarmService.ringing.collectAsState()
+    var timerKeypad by remember { mutableStateOf(false) }
+    val ringingState by AlarmService.ringing.collectAsState()
+    // A preview doesn't lock the alarm in the list.
+    val ringing = ringingState?.takeIf { !it.preview }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -141,10 +176,21 @@ private fun MainScreen(resumeTick: Int) {
             now = System.currentTimeMillis()
         }
     }
+    fun isLocked(a: Alarm) = ringing?.id == a.id || (a.enabled && a.snoozedUntil > now)
+    // Alarms tab: every normal alarm, plus reminders that ring within 24 h (or are ringing / snoozed).
+    val alarms = remember(all, now, ringing) {
+        all.filter { a ->
+            !a.reminder || isLocked(a) || (a.enabled && a.nextTrigger(now) - now in 0..REMINDER_ON_HOME_MS)
+        }.sortedBy { it.hour * 60 + it.minute }
+    }
+    // Reminders tab: soonest first, switched-off ones at the end.
+    val reminders = remember(all, now) {
+        all.filter { it.reminder }.sortedWith(compareBy({ !it.enabled }, { if (it.enabled) it.nextTrigger(now) else 0L }))
+    }
 
     fun toastScheduled(alarm: Alarm) {
         if (alarm.enabled) {
-            Toast.makeText(context, "Alarm set ${ringsIn(alarm.nextTrigger())}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "${if (alarm.reminder) "Reminder" else "Alarm"} set ${ringsIn(alarm.nextTrigger())}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -158,7 +204,7 @@ private fun MainScreen(resumeTick: Int) {
             snackbar.currentSnackbarData?.dismiss()
             val result = withTimeoutOrNull(3_000) {
                 snackbar.showSnackbar(
-                    message = "Alarm ${formatHm(context, alarm.hour, alarm.minute)} deleted",
+                    message = "${if (alarm.reminder) "Reminder" else "Alarm"} ${formatHm(context, alarm.hour, alarm.minute)} deleted",
                     actionLabel = "Undo",
                     duration = SnackbarDuration.Indefinite,
                 )
@@ -169,95 +215,154 @@ private fun MainScreen(resumeTick: Int) {
         }
     }
 
+    @Composable
+    fun AlarmItem(alarm: Alarm, showDate: Boolean) {
+        // An alarm that is ringing, snoozed or waiting for its wake-up check can only be
+        // ended from the ringing screen - otherwise switching it off would skip the puzzle.
+        val isRinging = ringing?.id == alarm.id
+        val locked = isRinging || (alarm.enabled && alarm.snoozedUntil > System.currentTimeMillis())
+        AlarmRow(
+            alarm,
+            showDate = showDate,
+            locked = locked,
+            isRinging = isRinging,
+            onToggle = { enabled -> toastScheduled(AlarmController.save(context, alarm.copy(enabled = enabled))) },
+            onAction = { action ->
+                when (action) {
+                    RowAction.EDIT -> editing = alarm
+                    RowAction.PREVIEW -> if (!AlarmService.preview(context, alarm.id)) {
+                        Toast.makeText(context, "Another alarm is ringing", Toast.LENGTH_SHORT).show()
+                    }
+                    RowAction.DUPLICATE -> editing = alarm.duplicate()
+                    RowAction.DELETE -> deleteWithUndo(alarm)
+                    RowAction.SKIP -> {
+                        val saved = AlarmController.skipNext(context, alarm)
+                        Toast.makeText(
+                            context,
+                            "Skipping ${formatMillis(context, saved.skippedTrigger)} - next ${formatMillis(context, saved.nextTrigger())}",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    RowAction.UNDO_SKIP -> toastScheduled(AlarmController.undoSkip(context, alarm))
+                    RowAction.DISMISS -> context.startActivity(
+                        if (isRinging) AlarmActivity.intent(context) else AlarmActivity.dismissIntent(context, alarm.id),
+                    )
+                }
+            },
+            onClick = {
+                when {
+                    isRinging -> context.startActivity(AlarmActivity.intent(context))
+                    // Same as the menu's "Dismiss…": go straight to this alarm's dismiss rule.
+                    locked -> context.startActivity(AlarmActivity.dismissIntent(context, alarm.id))
+                    else -> editing = alarm
+                }
+            },
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { TopAppBar(title = { Text("NeverMiss", fontWeight = FontWeight.Bold) }) },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { editing = Alarm() }) { Icon(Icons.Default.Add, "Add alarm") }
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item { NextAlarmCard(alarms, now) }
-            item {
-                ReliabilityCard(
-                    checks,
-                    onFix = { check ->
-                        val intent = check.fixIntent ?: return@ReliabilityCard
-                        try {
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            context.startActivity(
-                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+        topBar = { TopAppBar(title = { Text(if (tab == Tab.ALARMS) "NeverMiss" else tab.title, fontWeight = FontWeight.Bold) }) },
+        bottomBar = {
+            NavigationBar {
+                Tab.entries.forEach { t ->
+                    NavigationBarItem(
+                        selected = tab == t,
+                        onClick = { onTab(t) },
+                        icon = {
+                            Icon(
+                                when (t) {
+                                    Tab.ALARMS -> AppIcons.Alarm
+                                    Tab.REMINDERS -> AppIcons.Reminder
+                                    Tab.TIMER -> AppIcons.Hourglass
+                                    Tab.STOPWATCH -> AppIcons.Stopwatch
+                                },
+                                contentDescription = null,
                             )
-                        }
-                    },
-                    onManualDone = { key ->
-                        Reliability.markManualDone(context, key)
-                        localTick++
-                    },
-                )
-            }
-            if (alarms.isEmpty()) {
-                item {
-                    Text(
-                        "No alarms yet - tap + to add one.",
-                        modifier = Modifier.fillMaxWidth().padding(24.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        },
+                        label = { Text(t.title) },
                     )
                 }
             }
-            items(alarms, key = { it.id }) { alarm ->
-                // An alarm that is ringing, snoozed or waiting for its wake-up check can only be
-                // ended from the ringing screen - otherwise switching it off would skip the puzzle.
-                val isRinging = ringing?.id == alarm.id
-                val locked = isRinging || (alarm.enabled && alarm.snoozedUntil > System.currentTimeMillis())
-                AlarmRow(
-                    alarm,
-                    locked = locked,
-                    isRinging = isRinging,
-                    onToggle = { enabled -> toastScheduled(AlarmController.save(context, alarm.copy(enabled = enabled))) },
-                    onAction = { action ->
-                        when (action) {
-                            RowAction.EDIT -> editing = alarm
-                            RowAction.DUPLICATE -> editing = alarm.duplicate()
-                            RowAction.DELETE -> deleteWithUndo(alarm)
-                            RowAction.SKIP -> {
-                                val saved = AlarmController.skipNext(context, alarm)
-                                Toast.makeText(
-                                    context,
-                                    "Skipping ${formatMillis(context, saved.skippedTrigger)} - next ${formatMillis(context, saved.nextTrigger())}",
-                                    Toast.LENGTH_LONG,
-                                ).show()
-                            }
-                            RowAction.UNDO_SKIP -> toastScheduled(AlarmController.undoSkip(context, alarm))
-                            RowAction.DISMISS -> context.startActivity(
-                                if (isRinging) AlarmActivity.intent(context) else AlarmActivity.dismissIntent(context, alarm.id),
-                            )
-                        }
-                    },
-                    onClick = {
-                        when {
-                            isRinging -> context.startActivity(AlarmActivity.intent(context))
-                            // Same as the menu's "Dismiss…": go straight to this alarm's dismiss rule.
-                            locked -> context.startActivity(AlarmActivity.dismissIntent(context, alarm.id))
-                            else -> editing = alarm
-                        }
-                    },
-                )
+        },
+        floatingActionButton = {
+            when (tab) {
+                Tab.ALARMS -> FloatingActionButton(onClick = { editing = Alarm() }) { Icon(Icons.Default.Add, "Add alarm") }
+                Tab.REMINDERS -> FloatingActionButton(onClick = {
+                    editing = Alarm(reminder = true, date = LocalDate.now().plusDays(1).toString(), hour = 9)
+                }) { Icon(Icons.Default.Add, "Add reminder") }
+                Tab.TIMER -> if (TimerStore.all(context).isNotEmpty()) {
+                    FloatingActionButton(onClick = { timerKeypad = true }) { Icon(Icons.Default.Add, "Add timer") }
+                }
+                Tab.STOPWATCH -> {}
             }
-            // Hidden in release for now. Replaces any earlier test alarm (it always uses the same id).
-            if (BuildConfig.DEBUG) item {
-                OutlinedButton(
-                    onClick = {
-                        AlarmController.scheduleTest(context)
-                        Toast.makeText(context, "Test alarm in 20 seconds - lock your phone now", Toast.LENGTH_LONG).show()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Test alarm (rings in 20 s)") }
+        },
+    ) { padding ->
+        when (tab) {
+            Tab.TIMER -> TimerTab(padding, showKeypad = timerKeypad, onKeypadClosed = { timerKeypad = false })
+            Tab.STOPWATCH -> StopwatchTab(padding)
+            Tab.REMINDERS -> LazyColumn(
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (reminders.isEmpty()) {
+                    item {
+                        Text(
+                            "No reminders yet - tap + to add one.\n\nReminders are for rarer things (weekly, monthly, " +
+                                "yearly, a set date). Each one also shows on Alarms when it's within 24 hours.",
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                items(reminders, key = { it.id }) { AlarmItem(it, showDate = true) }
+            }
+            Tab.ALARMS -> LazyColumn(
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item { NextAlarmCard(all, now) }
+                item {
+                    ReliabilityCard(
+                        checks,
+                        onFix = { check ->
+                            val intent = check.fixIntent ?: return@ReliabilityCard
+                            try {
+                                context.startActivity(intent)
+                            } catch (_: Exception) {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+                                )
+                            }
+                        },
+                        onManualDone = { key ->
+                            Reliability.markManualDone(context, key)
+                            localTick++
+                        },
+                    )
+                }
+                if (alarms.isEmpty()) {
+                    item {
+                        Text(
+                            "No alarms yet - tap + to add one.",
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                items(alarms, key = { it.id }) { AlarmItem(it, showDate = it.reminder) }
+                // Hidden in release for now. Replaces any earlier test alarm (it always uses the same id).
+                if (BuildConfig.DEBUG) item {
+                    OutlinedButton(
+                        onClick = {
+                            AlarmController.scheduleTest(context)
+                            Toast.makeText(context, "Test alarm in 20 seconds - lock your phone now", Toast.LENGTH_LONG).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Test alarm (rings in 20 s)") }
+                }
             }
         }
     }
@@ -358,12 +463,13 @@ private fun ReliabilityCard(
     }
 }
 
-private enum class RowAction { EDIT, DUPLICATE, SKIP, UNDO_SKIP, DISMISS, DELETE }
+private enum class RowAction { EDIT, PREVIEW, DUPLICATE, SKIP, UNDO_SKIP, DISMISS, DELETE }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AlarmRow(
     alarm: Alarm,
+    showDate: Boolean,
     locked: Boolean,
     isRinging: Boolean,
     onToggle: (Boolean) -> Unit,
@@ -403,6 +509,7 @@ private fun AlarmRow(
                             locked -> item(if (isRinging) "Open ringing alarm" else "Dismiss…", RowAction.DISMISS)()
                             else -> {
                                 item("Edit", RowAction.EDIT)()
+                                item("Preview", RowAction.PREVIEW)()
                                 if (alarm.enabled && alarm.isRepeating) {
                                     if (alarm.isSkipping()) item("Undo skip", RowAction.UNDO_SKIP)()
                                     else item("Skip next (${formatMillis(context, alarm.regularTrigger())})", RowAction.SKIP)()
@@ -429,6 +536,7 @@ private fun AlarmRow(
                         )
                     }
                     val details = listOf(
+                        if (alarm.reminder) "Reminder" else "",
                         daysLabel(alarm),
                         if (alarm.autoStopSeconds > 0) "stops after ${alarm.autoStopSeconds} s" else "",
                     ).filter { it.isNotBlank() }.joinToString(" · ")
@@ -443,6 +551,15 @@ private fun AlarmRow(
                         locked -> "Snoozed until ${formatMillis(context, alarm.snoozedUntil)}"
                         alarm.enabled && alarm.isSkipping() -> "Skipping ${formatMillis(context, alarm.skippedTrigger)}"
                         else -> null
+                    }
+                    if (status == null && alarm.enabled) {
+                        // Preview of the next ring, so you can see at a glance when it goes off.
+                        val next = alarm.nextTrigger()
+                        Text(
+                            "Next: " + (if (showDate) formatDateTime(context, next) else formatMillis(context, next)) + " · " + ringsIn(next),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dim),
+                        )
                     }
                     if (status != null) {
                         Text(

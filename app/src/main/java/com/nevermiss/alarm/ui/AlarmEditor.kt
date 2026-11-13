@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -81,6 +82,14 @@ fun AlarmEditor(
     var ringtone by remember { mutableStateOf(initial.ringtoneUri) }
     var autoStop by remember { mutableIntStateOf(initial.autoStopSeconds) }
     var autoSnooze by remember { mutableIntStateOf(initial.autoSnoozeSeconds) }
+    var reminder by remember { mutableStateOf(initial.reminder) }
+    // Follows the repeat choice (Weekly / Monthly / Yearly -> Reminder) until a box is ticked by hand.
+    // A new one from the Reminders tab's + counts as chosen.
+    var typeTouched by remember { mutableStateOf(initial.id == 0 && initial.reminder) }
+    fun pickMode(m: RepeatMode) {
+        mode = m
+        if (!typeTouched) reminder = m.isRare
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -138,7 +147,8 @@ fun AlarmEditor(
                 val trigger = preview.nextTrigger()
                 val inPast = trigger <= System.currentTimeMillis()
                 Text(
-                    if (inPast) "That date and time has already passed" else "Rings " + ringsIn(trigger),
+                    if (inPast) "That date and time has already passed"
+                    else "Rings ${formatDateTime(context, trigger)} - ${ringsIn(trigger)}",
                     color = if (inPast) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 8.dp),
                 )
@@ -149,7 +159,7 @@ fun AlarmEditor(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     RepeatMode.entries.forEach { m ->
-                        FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m.title) })
+                        FilterChip(selected = mode == m, onClick = { pickMode(m) }, label = { Text(m.title) })
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -160,7 +170,7 @@ fun AlarmEditor(
                             DayCircle(letter, days and (1 shl i) != 0) { days = days xor (1 shl i) }
                         }
                     }
-                    RepeatMode.DATE -> TextButton(onClick = { showDatePicker = true }) {
+                    RepeatMode.DATE, RepeatMode.YEARLY -> TextButton(onClick = { showDatePicker = true }) {
                         Text(date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy")), fontSize = 18.sp)
                     }
                     RepeatMode.MONTHLY -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -178,6 +188,18 @@ fun AlarmEditor(
                     modifier = Modifier.padding(top = 6.dp),
                 )
 
+                SectionTitle("Show in")
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    TypeTick("Alarms", checked = !reminder) { reminder = false; typeTouched = true }
+                    TypeTick("Reminders", checked = reminder) { reminder = true; typeTouched = true }
+                }
+                Text(
+                    if (reminder) "Listed under Reminders, and on Alarms when it's within 24 hours"
+                    else "Listed under Alarms",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
+                )
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = label,
@@ -267,6 +289,7 @@ fun AlarmEditor(
                                 ringtoneUri = ringtone,
                                 autoStopSeconds = autoStop,
                                 autoSnoozeSeconds = autoSnooze,
+                                reminder = reminder,
                                 enabled = true,
                             ),
                         )
@@ -304,11 +327,13 @@ private fun SettingRow(title: String, subtitle: String?, trailing: @Composable (
 
 private const val EVERY_DAY = 0b1111111
 
-enum class RepeatMode(val title: String) {
-    ONCE("Once"), DAILY("Daily"), WEEKLY("Weekly"), DATE("Date"), MONTHLY("Monthly");
+enum class RepeatMode(val title: String, val isRare: Boolean = false) {
+    ONCE("Once"), DAILY("Daily"), WEEKLY("Weekly", isRare = true), DATE("Date", isRare = true),
+    MONTHLY("Monthly", isRare = true), YEARLY("Yearly", isRare = true);
 
     companion object {
         fun of(a: Alarm) = when {
+            a.date != null && a.yearly -> YEARLY
             a.date != null -> DATE
             a.monthDay != 0 -> MONTHLY
             a.days == EVERY_DAY -> DAILY
@@ -320,11 +345,23 @@ enum class RepeatMode(val title: String) {
 
 /** Sets exactly one repeat kind on [base] and clears the others. */
 private fun buildRepeat(base: Alarm, mode: RepeatMode, days: Int, date: LocalDate, monthDay: Int): Alarm = when (mode) {
-    RepeatMode.ONCE -> base.copy(days = 0, date = null, monthDay = 0)
-    RepeatMode.DAILY -> base.copy(days = EVERY_DAY, date = null, monthDay = 0)
-    RepeatMode.WEEKLY -> base.copy(days = days, date = null, monthDay = 0)
-    RepeatMode.DATE -> base.copy(days = 0, date = date.toString(), monthDay = 0)
-    RepeatMode.MONTHLY -> base.copy(days = 0, date = null, monthDay = monthDay)
+    RepeatMode.ONCE -> base.copy(days = 0, date = null, monthDay = 0, yearly = false)
+    RepeatMode.DAILY -> base.copy(days = EVERY_DAY, date = null, monthDay = 0, yearly = false)
+    RepeatMode.WEEKLY -> base.copy(days = days, date = null, monthDay = 0, yearly = false)
+    RepeatMode.DATE -> base.copy(days = 0, date = date.toString(), monthDay = 0, yearly = false)
+    RepeatMode.YEARLY -> base.copy(days = 0, date = date.toString(), monthDay = 0, yearly = true)
+    RepeatMode.MONTHLY -> base.copy(days = 0, date = null, monthDay = monthDay, yearly = false)
+}
+
+@Composable
+private fun TypeTick(text: String, checked: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(end = 12.dp),
+    ) {
+        Checkbox(checked = checked, onCheckedChange = { onClick() })
+        Text(text)
+    }
 }
 
 @Composable

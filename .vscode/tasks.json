@@ -3,13 +3,16 @@
   "tasks": [
     {
       "label": "Run on phone",
-      "detail": "Debug build: build, install and launch NeverMiss Debug",
+      "detail": "Debug build: build, install and launch NeverMiss Debug (separate app, release stays installed)",
       "type": "shell",
       "command": "./gradlew installDebug && \"$HOME/Library/Android/sdk/platform-tools/adb\" shell am start -n com.nevermiss.alarm.debug/com.nevermiss.alarm.ui.MainActivity",
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "group": "build",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
@@ -25,10 +28,7 @@
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
+      "group": "build",
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
